@@ -1,0 +1,248 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Pipeline for lambda and layer
+
+Parameters:
+  GitHubBranchName:
+    Description: Github branch
+    Type: String
+  GitHubRepoName:
+    Description: Github repository
+    Type: String
+  GitHubOwner:
+    Description: Github owner
+    Type: String
+  GitHubToken:
+    Description: Github token
+    Type: String
+  ArtifactBucketName:
+    Description: Artifact bucket name; should be a globally unique S3 bucket name
+    Type: String
+
+Resources:
+
+  CodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: LambdaAppCodeBuildRole
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action: sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service: codebuild.amazonaws.com
+      Path: /
+      Policies:
+        - PolicyName: CodeBuildRole
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement: 
+              - Effect: Allow
+                Action:
+                 - 'lambda:CreateFunction'
+                 - 'iam:UpdateAssumeRolePolicy'
+                 - 'lambda:TagResource'
+                 - 'lambda:ListVersionsByFunction'
+                 - 'lambda:GetLayerVersion'
+                 - 'iam:DeletePolicy'
+                 - 'iam:CreateRole'
+                 - 'lambda:GetFunctionConfiguration'
+                 - 'iam:AttachRolePolicy'
+                 - 'iam:PutRolePolicy'
+                 - 'lambda:UntagResource'
+                 - 'logs:CreateLogStream'
+                 - 'iam:PassRole'
+                 - 'lambda:ListTags'
+                 - 'iam:ListAttachedRolePolicies'
+                 - 'iam:DeleteRolePolicy'
+                 - 'lambda:DeleteLayerVersion'
+                 - 'lambda:ListLayerVersions'
+                 - 'lambda:ListLayers'
+                 - 'lambda:DeleteFunction'
+                 - 'iam:ListRolePolicies'
+                 - 'iam:ListPolicies'
+                 - 'lambda:ListFunctions'
+                 - 'iam:GetPolicy'
+                 - 'lambda:GetFunction'
+                 - 'lambda:UpdateFunctionConfiguration'
+                 - 'iam:ListRoles'
+                 - 'iam:DeleteRole'
+                 - 'logs:CreateLogGroup'
+                 - 'logs:PutLogEvents'
+                 - 'iam:CreatePolicy'
+                 - 'lambda:UpdateFunctionCode'
+                 - 'iam:UpdateRole'
+                 - 'iam:GetRolePolicy'
+                 - 'lambda:GetPolicy'
+                 - 'iam:GetRole'
+                 - 'iam:DetachRolePolicy'
+                 - 'lambda:PublishLayerVersion'
+                 - 'apigateway:POST'
+                 - 'apigateway:PUT'
+                 - 'apigateway:PATCH'
+                 - 'apigateway:GET'
+                 - 'apigateway:DELETE'
+                 - 'lambda:AddPermission'
+                 - 'lambda:RemovePermission'
+                 - 'cloudformation:*'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 's3:ListBucket'
+                  - 's3:GetObject'
+                  - 's3:PutObject'
+                Resource: !Sub
+                  - arn:aws:s3:::${BucketName}/*  
+                  - BucketName: !Ref ArtifactBucketName
+
+  CodePipelineServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: LambdaAppCodePipelineRole
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action: sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service: codepipeline.amazonaws.com
+      Path: /
+      Policies:
+        - PolicyName: CodePipelineRole
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement: 
+            - Effect: Allow
+              Action:
+               - 'codedeploy:CreateDeployment'
+               - 'codedeploy:GetApplicationRevision'
+               - 'codedeploy:RegisterApplicationRevision'
+               - 'codedeploy:GetDeploymentConfig'
+               - 'codedeploy:GetDeployment'
+               - 'codebuild:StartBuild'
+               - 'codebuild:BatchGetBuilds'
+               - 'logs:CreateLogStream'
+               - 'logs:CreateLogGroup'
+               - 'logs:PutLogEvents'
+               - 'cloudformation:*'
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - 's3:ListBuckets'
+                - 's3:GetObject'
+                - 's3:PutObject'
+              Resource: !Sub
+                - arn:aws:s3:::${BucketName}/*  
+                - BucketName: !Ref ArtifactBucketName
+
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref ArtifactBucketName
+
+  AppPipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: LambdaAppPipeline
+      RoleArn: !GetAtt CodePipelineServiceRole.Arn
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: SourceAction
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Version: '1'
+                Provider: GitHub
+              OutputArtifacts:
+                - Name: SourceOutput
+              Configuration:
+                Owner: !Ref GitHubOwner
+                OAuthToken: !Ref GitHubToken
+                Repo: !Ref GitHubRepoName
+                Branch: !Ref GitHubBranchName
+              RunOrder: 1
+        - Name: BuildDev
+          Actions:
+            - Name: BuildDev
+              InputArtifacts:
+                - Name: SourceOutput
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: '1'
+                Provider: CodeBuild
+              Configuration:
+                ProjectName: 'DevLambdaAppBuildProject'  
+                PrimarySource: SourceOutput
+              OutputArtifacts:
+                - Name: DevBuildOutput
+              RunOrder: 1
+        - Name: BuildProd
+          Actions:
+            - Name: BuildProd
+              InputArtifacts:
+                - Name: SourceOutput
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: '1'
+                Provider: CodeBuild
+              Configuration:
+                ProjectName: 'ProdLambdaAppBuildProject'  
+                PrimarySource: SourceOutput
+              OutputArtifacts:
+                - Name: ProdBuildOutput
+              RunOrder: 1              
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactBucketName
+
+  DevCodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Artifacts:
+        Type: CODEPIPELINE
+      Name: DevLambdaAppBuildProject  
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:5.0
+        Type: LINUX_CONTAINER
+        EnvironmentVariables:
+          - Name: STACKNAME
+            Type: PLAINTEXT
+            Value: DevLambdaAppStack
+          - Name: LAMBDA_ARTIFACT_BUCKET
+            Type: PLAINTEXT
+            Value: !Ref ArtifactBucketName
+          - Name: ENVIRONMENT
+            Type: PLAINTEXT
+            Value: Development            
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Source:
+        Type: CODEPIPELINE
+      TimeoutInMinutes: 10        
+
+  ProdCodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Artifacts:
+        Type: CODEPIPELINE
+      Name: ProdLambdaAppBuildProject  
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:5.0
+        Type: LINUX_CONTAINER
+        EnvironmentVariables:
+          - Name: STACKNAME
+            Type: PLAINTEXT
+            Value: ProdLambdaAppStack
+          - Name: LAMBDA_ARTIFACT_BUCKET
+            Type: PLAINTEXT
+            Value: !Ref ArtifactBucketName
+          - Name: ENVIRONMENT
+            Type: PLAINTEXT
+            Value: Production            
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Source:
+        Type: CODEPIPELINE
+      TimeoutInMinutes: 10  
+                              

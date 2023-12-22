@@ -1,0 +1,40 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: sam app with lambda 
+
+Parameters:
+  Environment:
+    Description: Enter the environment
+    Type: String
+
+Globals:
+  Function: 
+    Environment:
+      Variables:
+        ENV: !Ref Environment
+
+Resources:
+  APIGW:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref Environment
+      Name: !Sub 
+        - '${env}-demo-api'
+        - env: !Ref Environment
+       
+  LambdaFunction:
+    Type: AWS::Serverless::Function 
+    Properties:
+      FunctionName: !Sub 
+        - '${env}-demo-function'
+        - env: !Ref Environment
+      Handler: src/function.lambdaHandler
+      CodeUri: ''            
+      Runtime: python3.9
+      Events: 
+        RootGet:
+          Type: Api
+          Properties: 
+            RestApiId: !Ref APIGW
+            Path: /hello
+            Method: GET 

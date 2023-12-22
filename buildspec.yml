@@ -1,0 +1,19 @@
+# buildspec.yml
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.9
+
+
+  build:
+    commands:
+      # LAMBDA_ARTIFACT_BUCKET should be an environment variable in AWS::CodeBuild::Project
+      - sam build
+      - sam deploy --s3-bucket $LAMBDA_ARTIFACT_BUCKET --stack-name $STACKNAME --capabilities CAPABILITY_NAMED_IAM --parameter-overrides ParameterKey=Environment,ParameterValue=$ENVIRONMENT
+
+artifacts:
+  files:
+    - '**/*' 
+  base-directory: '.aws-sam/build'
